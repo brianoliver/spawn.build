@@ -194,11 +194,6 @@
             </dependency>
             <dependency>
                 <groupId>build.base</groupId>
-                <artifactId>base-logging</artifactId>
-                <version>${base.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>build.base</groupId>
                 <artifactId>base-naming</artifactId>
                 <version>${base.version}</version>
             </dependency>
@@ -239,6 +234,16 @@
             <dependency>
                 <groupId>build.base</groupId>
                 <artifactId>base-json</artifactId>
+                <version>${base.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>build.base</groupId>
+                <artifactId>base-telemetry</artifactId>
+                <version>${base.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>build.base</groupId>
+                <artifactId>base-telemetry-foundation</artifactId>
                 <version>${base.version}</version>
             </dependency>
 

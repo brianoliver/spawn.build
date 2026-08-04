@@ -26,7 +26,6 @@
 open module build.spawn.platform.local {
     requires transitive java.management;
 
-    requires transitive build.base.logging;
     requires transitive build.spawn.application;
 
     exports build.spawn.platform.local;

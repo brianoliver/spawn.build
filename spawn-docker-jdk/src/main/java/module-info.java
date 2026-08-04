@@ -41,7 +41,8 @@ open module build.spawn.docker.jdk {
     requires build.base.archiving;
     requires build.base.option;
     requires build.base.flow;
-    requires java.logging;
+    requires build.base.telemetry;
+    requires build.base.telemetry.foundation;
 
     exports build.spawn.docker.jdk;
 

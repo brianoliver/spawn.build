@@ -22,7 +22,6 @@ package build.spawn.platform.local;
 
 import build.base.configuration.ConfigurationBuilder;
 import build.base.foundation.Strings;
-import build.base.logging.Logger;
 import build.base.option.WorkingDirectory;
 import build.spawn.application.AbstractTemplatedLauncher;
 import build.spawn.application.Application;
@@ -42,11 +41,6 @@ import java.io.IOException;
  */
 public class LocalLauncher
     extends AbstractTemplatedLauncher<Application, LocalMachine, LocalProcess> {
-
-    /**
-     * The {@link Logger}.
-     */
-    private static final Logger LOGGER = Logger.get(LocalLauncher.class);
 
     @Override
     public LocalProcess createProcess(final LocalMachine platform,
@@ -81,8 +75,8 @@ public class LocalLauncher
 
         this.diagnostics.addRow("Application Launch Command", String.join(" ", processBuilder.command()));
 
-        LOGGER.debug("build.spawn: Launching Application...\n"
-            + "--------------------------------------------------------------\n" + "{0}"
+        this.recorder.diagnostic("build.spawn: Launching Application...\n"
+            + "--------------------------------------------------------------\n" + "%s"
             + "--------------------------------------------------------------", this.diagnostics);
 
         try {
@@ -93,8 +87,8 @@ public class LocalLauncher
             return new LocalProcess(nativeProcess, platform);
         }
         catch (final IOException e) {
-            LOGGER.error("Failed to launch a native process for the application {}",
-                options.get(Name.class).get(), e);
+            this.recorder.error(e, "Failed to launch a native process for the application %s",
+                options.get(Name.class).get());
 
             throw new RuntimeException("Failed to launch native process for the application", e);
         }

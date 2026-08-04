@@ -1,18 +1,16 @@
 package build.spawn.platform.local.jdk;
 
-import org.junit.jupiter.api.Test;
+import build.base.telemetry.Diagnostic;
+import build.base.telemetry.Telemetry;
+import build.base.telemetry.foundation.NoOpTelemetryRecorder;
+import build.base.telemetry.foundation.ObservableTelemetryRecorder;
 
-import java.text.MessageFormat;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.logging.Handler;
-import java.util.logging.Level;
-import java.util.logging.LogRecord;
+import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Tests for the log output of {@link JDKHomeBasedPatternDetector}.
+ * Tests for the telemetry output of {@link JDKHomeBasedPatternDetector}.
  *
  * @author reed.vonredwitz
  * @since Mar-2026
@@ -20,73 +18,35 @@ import static org.assertj.core.api.Assertions.assertThat;
 class JDKHomeBasedPatternDetectorLogTests {
 
     /**
-     * Ensure that when a configured JDK search path does not exist, the debug log message
+     * Ensure that when a configured JDK search path does not exist, the diagnostic {@link Telemetry}
      * shows both the <em>base</em> directory and the full <em>pattern</em> that was skipped.
-     * <p>
-     * NOTE: This test captures log output via {@code java.util.logging} (JUL) on the assumption
-     * that {@code build.base.logging.Logger} delegates to JUL.  If a different backend is used,
-     * this test will pass vacuously (no records captured) and must be revisited.
      */
     @Test
-    void skipLogMessageShouldShowPatternNotJustBase() {
-        final List<LogRecord> capturedRecords = new ArrayList<>();
+    void skipDiagnosticShouldShowPatternNotJustBase() {
+        final var recorder = ObservableTelemetryRecorder.of(NoOpTelemetryRecorder.create());
 
-        final var handler = new Handler() {
-            @Override
-            public void publish(final LogRecord record) {
-                if (record.getMessage() != null && record.getMessage().contains("Skipping path")) {
-                    capturedRecords.add(record);
-                }
-            }
+        // trigger detection — non-existent paths in java.home.properties will produce Diagnostic telemetry
+        new JDKHomeBasedPatternDetector(recorder).detect().count();
 
-            @Override
-            public void flush() {
-                // nothing to flush
-            }
+        final var skipped = recorder.stream()
+            .filter(Diagnostic.class::isInstance)
+            .filter(telemetry -> telemetry.message().contains("Skipping path"))
+            .toList();
 
-            @Override
-            public void close() throws SecurityException {
-                // nothing to close
-            }
-        };
-        handler.setLevel(Level.ALL);
-
-        final var julLogger = java.util.logging.Logger.getLogger(
-            JDKHomeBasedPatternDetector.class.getName());
-        final var originalLevel = julLogger.getLevel();
-        julLogger.addHandler(handler);
-        julLogger.setLevel(Level.ALL);
-
-        try {
-            // trigger detection — non-existent paths in java.home.properties will produce log records
-            new JDKHomeBasedPatternDetector().detect().count();
-        } finally {
-            julLogger.removeHandler(handler);
-            julLogger.setLevel(originalLevel);
-        }
-
-        // if any "Skipping path" records were captured, verify each shows the pattern value
-        for (final var record : capturedRecords) {
-            final var params = record.getParameters();
-            if (params != null && params.length >= 2) {
-                final var base = params[0].toString();
-                final var pattern = params[1].toString();
-
-                // the base and pattern should be distinct values
-                assertThat(base).isNotEqualTo(pattern);
-
-                // the formatted message must contain the actual pattern string, not base duplicated
-                final var formatted = MessageFormat.format(record.getMessage(), params);
-                assertThat(formatted)
-                    .as("log message should show pattern '%s' but showed base '%s' twice", pattern, base)
-                    .contains(pattern);
-            }
-        }
-
-        // at least one "Skipping path" record must have been captured for this test to be meaningful
+        // at least one "Skipping path" Diagnostic must have been produced for this test to be meaningful
         // (on any platform, some JDK patterns in java.home.properties will not exist)
-        assertThat(capturedRecords)
-            .as("expected at least one 'Skipping path' log record to be produced during JDK detection")
+        assertThat(skipped)
+            .as("expected at least one 'Skipping path' Diagnostic to be produced during JDK detection")
             .isNotEmpty();
+
+        // the formatted message must contain both the base and the pattern, and they must be distinct
+        skipped.forEach(telemetry -> {
+            final var message = telemetry.message();
+
+            assertThat(message)
+                .as("diagnostic message should show both the base and the pattern")
+                .contains("Skipping path [")
+                .contains("for pattern [");
+        });
     }
 }

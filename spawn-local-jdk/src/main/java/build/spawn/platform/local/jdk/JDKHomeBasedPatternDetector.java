@@ -23,11 +23,13 @@ package build.spawn.platform.local.jdk;
 import build.base.expression.compat.Processor;
 import build.base.expression.compat.Variable;
 import build.base.foundation.Exceptional;
-import build.base.logging.Logger;
+import build.base.telemetry.TelemetryRecorder;
+import build.base.telemetry.foundation.PrintStreamTelemetryRecorder;
 import build.spawn.jdk.JDK;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileSystems;
 import java.nio.file.FileVisitOption;
@@ -42,6 +44,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.SortedSet;
 import java.util.concurrent.ConcurrentSkipListSet;
@@ -59,11 +62,6 @@ public class JDKHomeBasedPatternDetector
     implements JDKDetector {
 
     /**
-     * The {@link Logger}.
-     */
-    private static final Logger LOG = Logger.get(JDKHomeBasedPatternDetector.class);
-
-    /**
      * The "java.home.properties" resource.
      */
     private static final String JAVA_HOME_PROPERTIES = "java.home.properties";
@@ -74,10 +72,25 @@ public class JDKHomeBasedPatternDetector
     private final AtomicReference<SortedSet<JDK>> jdks;
 
     /**
-     * Constructs the {@link JDKHomeBasedPatternDetector} {@link JDKDetector}.
+     * The {@link TelemetryRecorder} used to record detection diagnostics.
+     */
+    private final TelemetryRecorder recorder;
+
+    /**
+     * Constructs a {@link JDKHomeBasedPatternDetector}, recording telemetry to {@link System#err}.
      */
     public JDKHomeBasedPatternDetector() {
+        this(PrintStreamTelemetryRecorder.of(URI.create("spawn://jdk-home-detector"), System.out, System.err));
+    }
+
+    /**
+     * Constructs a {@link JDKHomeBasedPatternDetector}.
+     *
+     * @param recorder the {@link TelemetryRecorder} used to record detection diagnostics
+     */
+    public JDKHomeBasedPatternDetector(final TelemetryRecorder recorder) {
         this.jdks = new AtomicReference<>();
+        this.recorder = Objects.requireNonNull(recorder, "The TelemetryRecorder must not be null");
     }
 
     @Override
@@ -110,9 +123,9 @@ public class JDKHomeBasedPatternDetector
                 })
                 .map(knownJdkHomes::getProperty)
                 .map(processor::replace)
-                .flatMap(JDKHomeBasedPatternDetector::expandPattern);
+                .flatMap(this::expandPattern);
         } catch (final IOException e) {
-            LOG.error("Failed to read {0}", JAVA_HOME_PROPERTIES, e);
+            this.recorder.error(e, "Failed to read %s", JAVA_HOME_PROPERTIES);
             return Stream.empty();
         }
     }
@@ -126,17 +139,17 @@ public class JDKHomeBasedPatternDetector
      * @param pattern the pattern, with any {@code ${...}} variables already expanded
      * @return the matching paths, or an empty stream if the pattern is invalid or matches nothing
      */
-    static Stream<Path> expandPattern(final String pattern) {
+    Stream<Path> expandPattern(final String pattern) {
         try {
             if (!isGlobPattern(pattern)) {
                 return Stream.of(Paths.get(pattern));
             }
             return expandGlobPattern(pattern);
         } catch (final InvalidPathException e) {
-            LOG.debug("The path [{0}] is not a valid pattern", pattern);
+            this.recorder.diagnostic("The path [%s] is not a valid pattern", pattern);
             return Stream.empty();
         } catch (final IOException e) {
-            LOG.debug("Failed to visit a path [{0}]", pattern, e);
+            this.recorder.warn(e, "Failed to visit a path [%s]", pattern);
             return Stream.empty();
         }
     }
@@ -154,18 +167,19 @@ public class JDKHomeBasedPatternDetector
      * walking the base directory — pruning subtrees that can't possibly match, per
      * {@link GlobSegments}.
      */
-    private static Stream<Path> expandGlobPattern(final String pattern) throws IOException {
+    private Stream<Path> expandGlobPattern(final String pattern) throws IOException {
         // find the position of the last file separator (/) before the glob metacharacters
         // begin — everything before it is a plain base path, the rest is the glob suffix
         final int baseEnd = indexOfBaseEnd(pattern);
         if (baseEnd < 0) {
-            LOG.warn("The path [{0}] is not an absolute path", pattern);
+            this.recorder.warn("The path [%s] is not an absolute path", pattern);
             return Stream.empty();
         }
 
         final Path base = Paths.get(pattern.substring(0, baseEnd));
         if (!base.toFile().exists()) {
-            LOG.debug("Skipping path [{0}] for pattern [{1}] as the path does not exist", base, pattern);
+            this.recorder.diagnostic(
+                "Skipping path [%s] for pattern [%s] as the path does not exist", base, pattern);
             return Stream.empty();
         }
 
@@ -177,7 +191,7 @@ public class JDKHomeBasedPatternDetector
             base,
             EnumSet.of(FileVisitOption.FOLLOW_LINKS),
             segments.maxDepth(),
-            new PruningGlobVisitor(base, fullMatcher, segments, matches));
+            new PruningGlobVisitor(base, fullMatcher, segments, matches, this.recorder));
 
         return matches.stream();
     }
@@ -321,13 +335,15 @@ public class JDKHomeBasedPatternDetector
         private final PathMatcher fullMatcher;
         private final GlobSegments segments;
         private final ArrayList<Path> matches;
+        private final TelemetryRecorder recorder;
 
         PruningGlobVisitor(final Path base, final PathMatcher fullMatcher, final GlobSegments segments,
-                           final ArrayList<Path> matches) {
+                           final ArrayList<Path> matches, final TelemetryRecorder recorder) {
             this.base = base;
             this.fullMatcher = fullMatcher;
             this.segments = segments;
             this.matches = matches;
+            this.recorder = recorder;
         }
 
         @Override
@@ -364,7 +380,7 @@ public class JDKHomeBasedPatternDetector
         @Override
         public FileVisitResult visitFileFailed(final Path file, final IOException exc) throws IOException {
             if (exc instanceof AccessDeniedException) {
-                LOG.debug("Access denied visiting [{0}], skipping", file);
+                this.recorder.diagnostic("Access denied visiting [%s], skipping", file);
                 return FileVisitResult.CONTINUE;
             }
             return super.visitFileFailed(file, exc);

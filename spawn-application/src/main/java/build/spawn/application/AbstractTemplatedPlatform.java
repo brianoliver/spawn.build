@@ -29,12 +29,14 @@ import build.base.expression.compat.Variable;
 import build.base.foundation.Introspection;
 import build.base.foundation.Preconditions;
 import build.base.foundation.Strings;
-import build.base.logging.Logger;
 import build.base.naming.UniqueNameGenerator;
 import build.base.network.Server;
 import build.base.option.TemporaryDirectory;
 import build.base.option.WorkingDirectory;
 import build.base.table.Table;
+import build.base.telemetry.TelemetryRecorder;
+import build.base.telemetry.TelemetryRecorderFactory;
+import build.base.telemetry.foundation.SystemTelemetryRecorder;
 import build.codemodel.dependency.injection.ConfigurationResolver;
 import build.codemodel.dependency.injection.Context;
 import build.codemodel.dependency.injection.InjectionFramework;
@@ -45,6 +47,7 @@ import build.spawn.application.option.LaunchIdentity;
 
 import java.io.IOException;
 import java.lang.reflect.Modifier;
+import java.net.URI;
 import java.util.ArrayDeque;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -70,9 +73,9 @@ public abstract class AbstractTemplatedPlatform
     implements TemplatedPlatform, AutoCloseable {
 
     /**
-     * The {@link Logger} for the {@link Platform}.
+     * The {@link TelemetryRecorder} for the {@link Platform}.
      */
-    private static final Logger LOGGER = Logger.get(AbstractTemplatedPlatform.class);
+    private final TelemetryRecorder recorder;
 
     /**
      * The name of the {@link Platform}.
@@ -111,19 +114,37 @@ public abstract class AbstractTemplatedPlatform
     protected final InjectionFramework injectionFramework;
 
     /**
-     * Constructs an {@link AbstractTemplatedPlatform}.
+     * Constructs an {@link AbstractTemplatedPlatform}, recording telemetry via a {@link SystemTelemetryRecorder}.
      *
      * @param name                  the name of the {@link Platform}
      * @param platformConfiguration the {@link Platform} {@link Configuration}
      */
-    @SuppressWarnings("unchecked")
     public AbstractTemplatedPlatform(final String name,
                                      final Configuration platformConfiguration) {
+        this(name, platformConfiguration, SystemTelemetryRecorder::of);
+    }
+
+    /**
+     * Constructs an {@link AbstractTemplatedPlatform}.
+     *
+     * @param name                    the name of the {@link Platform}
+     * @param platformConfiguration   the {@link Platform} {@link Configuration}
+     * @param telemetryRecorderFactory the {@link TelemetryRecorderFactory} used to create the
+     *                                 {@link TelemetryRecorder} for this {@link Platform}
+     */
+    @SuppressWarnings("unchecked")
+    public AbstractTemplatedPlatform(final String name,
+                                     final Configuration platformConfiguration,
+                                     final TelemetryRecorderFactory telemetryRecorderFactory) {
 
         this.name = Strings.isEmpty(name) ? "anonymous" : Strings.trim(name);
         this.platformConfiguration = platformConfiguration == null
             ? Configuration.empty()
             : platformConfiguration;
+
+        this.recorder = Objects.requireNonNull(telemetryRecorderFactory,
+            "The TelemetryRecorderFactory must not be null")
+            .apply(URI.create("spawn://" + getClass().getSimpleName()));
 
         this.nextLaunchIdentityNumber = new AtomicLong(1);
         this.uniqueNameGenerator = new UniqueNameGenerator();
@@ -195,6 +216,9 @@ public abstract class AbstractTemplatedPlatform
 
         // allow the UniqueNameGenerator to be injected
         context.bind(UniqueNameGenerator.class).to(this.uniqueNameGenerator);
+
+        // allow the TelemetryRecorder to be injected
+        context.bind(TelemetryRecorder.class).to(this.recorder);
 
         // allow Configuration Options to be resolved (including Defaults)
         context.addResolver(ConfigurationResolver.of(configuration));
@@ -346,7 +370,7 @@ public abstract class AbstractTemplatedPlatform
 
             return launcher.launch(this, applicationClass, launchConfiguration);
         } catch (final Throwable e) {
-            LOGGER.error("Unable to launch application", e);
+            this.recorder.error(e, "Unable to launch application");
             throw new RuntimeException(e);
         }
     }

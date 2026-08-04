@@ -43,11 +43,6 @@
 
         <dependency>
             <groupId>build.base</groupId>
-            <artifactId>base-logging</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>build.base</groupId>
             <artifactId>base-network</artifactId>
         </dependency>
 
@@ -64,6 +59,11 @@
         <dependency>
             <groupId>build.base</groupId>
             <artifactId>base-table</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>build.base</groupId>
+            <artifactId>base-telemetry</artifactId>
         </dependency>
 
         <!-- Test Dependencies -->

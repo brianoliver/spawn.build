@@ -31,17 +31,17 @@ open module build.spawn.application {
     requires transitive build.base.expression;
     requires transitive build.base.flow;
     requires transitive build.base.io;
-    requires transitive build.base.logging;
     requires transitive build.base.naming;
     requires transitive build.base.network;
     requires transitive build.base.option;
+    requires transitive build.base.telemetry;
+    requires build.base.telemetry.foundation;
 
     requires transitive build.codemodel.dependency.injection;
     requires transitive build.codemodel.jdk;
     requires transitive build.codemodel.foundation;
 
     requires transitive jakarta.inject;
-    requires java.logging;
 
     exports build.spawn.application;
     exports build.spawn.application.console;
