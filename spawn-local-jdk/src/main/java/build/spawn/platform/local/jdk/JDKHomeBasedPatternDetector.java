@@ -9,9 +9,9 @@ package build.spawn.platform.local.jdk;
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -41,6 +41,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Properties;
 import java.util.SortedSet;
 import java.util.concurrent.ConcurrentSkipListSet;
@@ -109,104 +110,264 @@ public class JDKHomeBasedPatternDetector
                 })
                 .map(knownJdkHomes::getProperty)
                 .map(processor::replace)
-                .flatMap(pattern -> {
-                    try {
-                        if (pattern.contains("*") || pattern.contains("?") || pattern.contains("[")
-                            || pattern.contains("]") || pattern.contains("{") || pattern.contains("}")) {
-
-                            // find the position of the last file.separator (/) before a glob pattern
-                            // this will be the base path and the rest is the glob pattern
-                            int i = 0;
-                            int lastPathSeparator = -1;
-                            while (i < pattern.length() && pattern.charAt(i) != '*'
-                                && pattern.charAt(i) != '?' && pattern.charAt(i) != '['
-                                && pattern.charAt(i) != ']' && pattern.charAt(i) != '{'
-                                && pattern.charAt(i) != '}') {
-
-                                if (pattern.charAt(i) == '/') {
-                                    lastPathSeparator = i;
-                                }
-
-                                i++;
-                            }
-
-                            if (lastPathSeparator < 0) {
-                                LOG.warn("The path [{0}] is not an absolute path", pattern);
-                                return Stream.empty();
-                            } else {
-                                final Path base = Paths.get(pattern.substring(0, lastPathSeparator));
-                                final String glob = "glob:" + pattern;
-
-                                // walk the tree from the base to find paths matching the glob
-                                final PathMatcher pathMatcher = FileSystems.getDefault()
-                                    .getPathMatcher(glob);
-
-                                final ArrayList<Path> paths = new ArrayList<>();
-
-                                // compute max walk depth from the pattern suffix — patterns without **
-                                // can only match at a fixed depth, so there's no need to go deeper.
-                                // +1 because Files.walkFileTree calls preVisitDirectory for depths
-                                // 0..maxDepth-1 only; at exactly maxDepth, directories are delivered
-                                // via visitFile and our preVisitDirectory check never fires.
-                                final String patternSuffix = pattern.substring(lastPathSeparator);
-                                final int maxDepth = patternSuffix.contains("**")
-                                    ? Integer.MAX_VALUE
-                                    : (int) patternSuffix.chars().filter(c -> c == '/').count() + 1;
-
-                                // attempt to find paths matching the glob, iff the base path exists
-                                if (base.toFile().exists()) {
-                                    Files.walkFileTree(
-                                        base,
-                                        EnumSet.of(FileVisitOption.FOLLOW_LINKS),
-                                        maxDepth,
-                                        new SimpleFileVisitor<Path>() {
-                                            @Override
-                                            public FileVisitResult preVisitDirectory(final Path path,
-                                                                                     final BasicFileAttributes attrs) {
-                                                if (pathMatcher.matches(path)) {
-                                                    paths.add(path);
-
-                                                    return FileVisitResult.SKIP_SUBTREE;
-                                                } else {
-                                                    return FileVisitResult.CONTINUE;
-                                                }
-                                            }
-
-                                            @Override
-                                            public FileVisitResult visitFileFailed(final Path file,
-                                                                                   final IOException exc)
-                                                throws IOException {
-                                                if (exc instanceof AccessDeniedException) {
-                                                    LOG.debug(
-                                                        "Access denied visiting [{0}], skipping", file);
-                                                    return FileVisitResult.CONTINUE;
-                                                }
-                                                return super.visitFileFailed(file, exc);
-                                            }
-                                        });
-
-                                    return paths.stream();
-                                } else {
-                                    LOG.debug(
-                                        "Skipping path [{0}] for pattern [{1}] as the path does not exist",
-                                        base, pattern);
-                                    return Stream.empty();
-                                }
-                            }
-                        } else {
-                            return Stream.of(Paths.get(pattern));
-                        }
-                    } catch (final InvalidPathException e) {
-                        LOG.debug("The path [{0}] is not a valid pattern", pattern);
-                        return Stream.empty();
-                    } catch (final IOException e) {
-                        LOG.debug("Failed to visit a path [{0}]", pattern, e);
-                        return Stream.empty();
-                    }
-                });
+                .flatMap(JDKHomeBasedPatternDetector::expandPattern);
         } catch (final IOException e) {
             LOG.error("Failed to read {0}", JAVA_HOME_PROPERTIES, e);
             return Stream.empty();
+        }
+    }
+
+    /**
+     * Expands a single "java.home.properties" pattern into the {@link Path}s it refers to.
+     * <p>
+     * A plain path (no glob metacharacters) resolves to itself; a glob pattern is expanded by
+     * walking its base directory, as per {@link #expandGlobPattern(String)}.
+     *
+     * @param pattern the pattern, with any {@code ${...}} variables already expanded
+     * @return the matching paths, or an empty stream if the pattern is invalid or matches nothing
+     */
+    static Stream<Path> expandPattern(final String pattern) {
+        try {
+            if (!isGlobPattern(pattern)) {
+                return Stream.of(Paths.get(pattern));
+            }
+            return expandGlobPattern(pattern);
+        } catch (final InvalidPathException e) {
+            LOG.debug("The path [{0}] is not a valid pattern", pattern);
+            return Stream.empty();
+        } catch (final IOException e) {
+            LOG.debug("Failed to visit a path [{0}]", pattern, e);
+            return Stream.empty();
+        }
+    }
+
+    /**
+     * Determines whether a pattern contains any glob metacharacters.
+     */
+    private static boolean isGlobPattern(final String pattern) {
+        return pattern.contains("*") || pattern.contains("?") || pattern.contains("[")
+            || pattern.contains("]") || pattern.contains("{") || pattern.contains("}");
+    }
+
+    /**
+     * Expands a glob pattern by splitting it into a plain base path and a glob suffix, then
+     * walking the base directory — pruning subtrees that can't possibly match, per
+     * {@link GlobSegments}.
+     */
+    private static Stream<Path> expandGlobPattern(final String pattern) throws IOException {
+        // find the position of the last file separator (/) before the glob metacharacters
+        // begin — everything before it is a plain base path, the rest is the glob suffix
+        final int baseEnd = indexOfBaseEnd(pattern);
+        if (baseEnd < 0) {
+            LOG.warn("The path [{0}] is not an absolute path", pattern);
+            return Stream.empty();
+        }
+
+        final Path base = Paths.get(pattern.substring(0, baseEnd));
+        if (!base.toFile().exists()) {
+            LOG.debug("Skipping path [{0}] for pattern [{1}] as the path does not exist", base, pattern);
+            return Stream.empty();
+        }
+
+        final GlobSegments segments = GlobSegments.of(pattern.substring(baseEnd));
+        final PathMatcher fullMatcher = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
+
+        final ArrayList<Path> matches = new ArrayList<>();
+        Files.walkFileTree(
+            base,
+            EnumSet.of(FileVisitOption.FOLLOW_LINKS),
+            segments.maxDepth(),
+            new PruningGlobVisitor(base, fullMatcher, segments, matches));
+
+        return matches.stream();
+    }
+
+    /**
+     * Finds the index of the last file separator before the first glob metacharacter in a
+     * pattern, i.e. the boundary between its plain base path and its glob suffix. Returns -1 if
+     * the pattern has no separator before its first metacharacter.
+     */
+    private static int indexOfBaseEnd(final String pattern) {
+        int baseEnd = -1;
+        for (int i = 0; i < pattern.length(); i++) {
+            final char c = pattern.charAt(i);
+            if (c == '*' || c == '?' || c == '[' || c == ']' || c == '{' || c == '}') {
+                break;
+            }
+            if (c == '/') {
+                baseEnd = i;
+            }
+        }
+        return baseEnd;
+    }
+
+    /**
+     * The individual path segments of a glob suffix (the part of a pattern after its base path),
+     * e.g. {@code "/zulu-*.jdk/Contents/Home"} -> {@code ["zulu-*.jdk", "Contents", "Home"]}.
+     * <p>
+     * These let a tree walk match (and prune) each directory level as soon as it's visited,
+     * rather than only checking the full glob once a leaf is reached. {@code "**"} spans an
+     * unknown number of segments, so segment-level pruning only applies to the fixed-depth
+     * prefix before the first {@code "**"} (if any); beyond that, the full glob must be matched
+     * against the whole path.
+     * <p>
+     * A {@code "{...}"} or {@code "[...]"} group can itself contain a {@code "/"} (e.g.
+     * {@code "{a/x,b/y}"}), in which case a single glob segment no longer corresponds to a
+     * single directory level and per-segment pruning would be unsound. When that happens, this
+     * falls back to no pruning at all — every directory in the subtree is checked against the
+     * full-path glob, exactly as if the whole suffix were a {@code "**"}.
+     */
+    private static final class GlobSegments {
+
+        private final PathMatcher[] prefixMatchers;
+        private final boolean hasDoubleStar;
+        private final int segmentCount;
+
+        private GlobSegments(final PathMatcher[] prefixMatchers, final boolean hasDoubleStar,
+                             final int segmentCount) {
+            this.prefixMatchers = prefixMatchers;
+            this.hasDoubleStar = hasDoubleStar;
+            this.segmentCount = segmentCount;
+        }
+
+        static GlobSegments of(final String globSuffix) {
+            final List<String> segments = new ArrayList<>();
+
+            // split on '/', but not one nested inside a "{...}" or "[...]" group — and note
+            // if that ever happens, since it breaks the 1-segment-per-directory-level
+            // assumption that segment-level pruning below relies on
+            boolean groupSpansSeparator = false;
+            int depth = 0;
+            int start = 0;
+            final String suffix = globSuffix.substring(1);
+            for (int i = 0; i < suffix.length(); i++) {
+                final char c = suffix.charAt(i);
+                if (c == '{' || c == '[') {
+                    depth++;
+                } else if (c == '}' || c == ']') {
+                    depth = Math.max(0, depth - 1);
+                } else if (c == '/') {
+                    if (depth == 0) {
+                        segments.add(suffix.substring(start, i));
+                        start = i + 1;
+                    } else {
+                        groupSpansSeparator = true;
+                    }
+                }
+            }
+            segments.add(suffix.substring(start));
+
+            if (groupSpansSeparator) {
+                return new GlobSegments(new PathMatcher[0], true, segments.size());
+            }
+
+            int firstDoubleStar = segments.size();
+            for (int s = 0; s < segments.size(); s++) {
+                if (segments.get(s).equals("**")) {
+                    firstDoubleStar = s;
+                    break;
+                }
+            }
+
+            final PathMatcher[] prefixMatchers = new PathMatcher[firstDoubleStar];
+            for (int s = 0; s < firstDoubleStar; s++) {
+                prefixMatchers[s] = FileSystems.getDefault().getPathMatcher("glob:" + segments.get(s));
+            }
+
+            return new GlobSegments(prefixMatchers, firstDoubleStar < segments.size(), segments.size());
+        }
+
+        /**
+         * The maximum depth a tree walk needs to descend to find every possible match.
+         * <p>
+         * Patterns without {@code **} can only match at a fixed depth, so there's no need to go
+         * deeper. +1 because {@link Files#walkFileTree} calls {@code preVisitDirectory} for
+         * depths {@code 0..maxDepth-1} only; at exactly {@code maxDepth}, directories are
+         * delivered via {@code visitFile} and {@code preVisitDirectory} never fires.
+         */
+        int maxDepth() {
+            return hasDoubleStar ? Integer.MAX_VALUE : segmentCount + 1;
+        }
+
+        /**
+         * Whether the given depth falls within the fixed-depth prefix, and so can be checked
+         * against a single segment matcher rather than the full glob.
+         */
+        boolean isWithinPrefix(final int depth) {
+            return depth <= prefixMatchers.length;
+        }
+
+        boolean matchesPrefixSegment(final int depth, final Path fileName) {
+            return prefixMatchers[depth - 1].matches(fileName);
+        }
+
+        /**
+         * Whether reaching the given depth, having matched every prefix segment along the way,
+         * already confirms a full match without needing to check the full-path glob.
+         */
+        boolean isConfirmedMatch(final int depth) {
+            return !hasDoubleStar && depth == segmentCount;
+        }
+    }
+
+    /**
+     * Walks a base directory collecting paths that match a glob, pruning subtrees as soon as a
+     * directory fails to match its corresponding fixed-depth segment (see {@link GlobSegments}).
+     */
+    private static final class PruningGlobVisitor
+        extends SimpleFileVisitor<Path> {
+
+        private final Path base;
+        private final PathMatcher fullMatcher;
+        private final GlobSegments segments;
+        private final ArrayList<Path> matches;
+
+        PruningGlobVisitor(final Path base, final PathMatcher fullMatcher, final GlobSegments segments,
+                           final ArrayList<Path> matches) {
+            this.base = base;
+            this.fullMatcher = fullMatcher;
+            this.segments = segments;
+            this.matches = matches;
+        }
+
+        @Override
+        public FileVisitResult preVisitDirectory(final Path path, final BasicFileAttributes attrs) {
+            if (path.equals(base)) {
+                // the base directory itself, always descend into it (relativize() would
+                // otherwise report this as an empty path with a misleading getNameCount() of 1)
+                return FileVisitResult.CONTINUE;
+            }
+
+            final int depth = base.relativize(path).getNameCount();
+
+            if (segments.isWithinPrefix(depth) && !segments.matchesPrefixSegment(depth, path.getFileName())) {
+                // this segment doesn't match its corresponding glob segment, so nothing under
+                // it can possibly match either
+                return FileVisitResult.SKIP_SUBTREE;
+            }
+
+            if (segments.isConfirmedMatch(depth)) {
+                // every segment up to and including this one matched its corresponding glob
+                // segment, so this is a confirmed match — no need to re-check the full-path glob
+                matches.add(path);
+                return FileVisitResult.SKIP_SUBTREE;
+            }
+
+            if (fullMatcher.matches(path)) {
+                matches.add(path);
+                return FileVisitResult.SKIP_SUBTREE;
+            }
+
+            return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFileFailed(final Path file, final IOException exc) throws IOException {
+            if (exc instanceof AccessDeniedException) {
+                LOG.debug("Access denied visiting [{0}], skipping", file);
+                return FileVisitResult.CONTINUE;
+            }
+            return super.visitFileFailed(file, exc);
         }
     }
 
