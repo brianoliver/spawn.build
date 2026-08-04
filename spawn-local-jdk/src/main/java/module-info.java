@@ -24,14 +24,14 @@
  * @since Jan-2025
  */
 open module build.spawn.platform.local.jdk {
-    requires java.logging;
-
     requires transitive build.base.foundation;
     requires build.base.archiving;
     requires build.base.commandline;
     requires build.base.flow;
     requires build.base.io;
     requires build.base.naming;
+    requires build.base.telemetry;
+    requires build.base.telemetry.foundation;
 
     requires transitive build.spawn.application;
     requires transitive build.spawn.jdk;

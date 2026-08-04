@@ -24,15 +24,17 @@ import build.base.flow.Subscriber;
 import build.base.flow.Subscription;
 import build.base.json.Json;
 import build.base.json.JsonValue;
+import build.base.telemetry.TelemetryRecorder;
+import build.base.telemetry.foundation.PrintStreamTelemetryRecorder;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * An {@link InputStreamProcessor} that reads NDJSON (newline-delimited JSON) and emits one
@@ -45,9 +47,25 @@ public class JsonNodeInputStreamProcessor
     implements InputStreamProcessor<JsonValue> {
 
     /**
-     * The {@link Logger}.
+     * The {@link TelemetryRecorder} used to record processing failures.
      */
-    private static final Logger LOG = Logger.getLogger(JsonNodeInputStreamProcessor.class.getName());
+    private final TelemetryRecorder recorder;
+
+    /**
+     * Constructs a {@link JsonNodeInputStreamProcessor}, recording telemetry to {@link System#err}.
+     */
+    public JsonNodeInputStreamProcessor() {
+        this(PrintStreamTelemetryRecorder.of(URI.create("spawn://docker-jdk"), System.out, System.err));
+    }
+
+    /**
+     * Constructs a {@link JsonNodeInputStreamProcessor}.
+     *
+     * @param recorder the {@link TelemetryRecorder} used to record processing failures
+     */
+    public JsonNodeInputStreamProcessor(final TelemetryRecorder recorder) {
+        this.recorder = Objects.requireNonNull(recorder, "The TelemetryRecorder must not be null");
+    }
 
     @Override
     public void process(final InputStream inputStream,
@@ -78,13 +96,13 @@ public class JsonNodeInputStreamProcessor
                 try {
                     subscriber.onNext(Json.parse(trimmed));
                 } catch (final Throwable throwable) {
-                    LOG.log(Level.FINE, "Failed to parse or deliver a JSON line from the stream", throwable);
+                    this.recorder.warn(throwable, "Failed to parse or deliver a JSON line from the stream");
                     failed = true;
                     subscriber.onError(throwable);
                 }
             }
         } catch (final Throwable throwable) {
-            LOG.log(Level.FINE, "Failed while processing the JSON input stream", throwable);
+            this.recorder.warn(throwable, "Failed while processing the JSON input stream");
             if (!failed) {
                 subscriber.onError(throwable);
             }
@@ -95,7 +113,7 @@ public class JsonNodeInputStreamProcessor
                 }
                 inputStream.close();
             } catch (final IOException e) {
-                LOG.log(Level.FINE, "Failed to close the JSON input stream", e);
+                this.recorder.warn(e, "Failed to close the JSON input stream");
             }
         }
     }

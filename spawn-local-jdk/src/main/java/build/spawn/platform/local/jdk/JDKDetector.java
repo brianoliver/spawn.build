@@ -21,14 +21,16 @@ package build.spawn.platform.local.jdk;
  */
 
 import build.base.foundation.Exceptional;
-import build.base.logging.Logger;
 import build.base.option.JDKVersion;
+import build.base.telemetry.TelemetryRecorder;
+import build.base.telemetry.foundation.PrintStreamTelemetryRecorder;
 import build.spawn.jdk.Architecture;
 import build.spawn.jdk.JDK;
 import build.spawn.jdk.OperatingSystem;
 import build.spawn.jdk.option.JDKHome;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -119,8 +121,22 @@ public interface JDKDetector {
      * @return the {@link Exceptional} {@link JDK}, otherwise {@link Exceptional#empty()}
      */
     static Exceptional<JDK> of(final Path path) {
-        final var LOGGER = Logger.get(JDKDetector.class);
+        return of(path, PrintStreamTelemetryRecorder.of(
+            URI.create("spawn://jdk-detector"), System.out, System.err));
+    }
 
+    /**
+     * Attempts to create a {@link JDK} for the specified {@link Path} to a Java Home by reading its
+     * {@code release} metadata file, recording detection diagnostics with the specified {@link TelemetryRecorder}.
+     * <p>
+     * Should the specified {@link Path} refer to a Java Runtime Environment (JRE), an attempt will be made to
+     * locate the {@link JDK} based on the specified {@link Path}.
+     *
+     * @param path     the {@link Path}
+     * @param recorder the {@link TelemetryRecorder} used to record detection diagnostics
+     * @return the {@link Exceptional} {@link JDK}, otherwise {@link Exceptional#empty()}
+     */
+    static Exceptional<JDK> of(final Path path, final TelemetryRecorder recorder) {
         // use provided path as the basis of the JDK location
         Path home = path;
 
@@ -135,14 +151,14 @@ public interface JDKDetector {
         }
 
         if (!home.resolve("bin/java").toFile().exists() && !home.resolve("bin/java.exe").toFile().exists()) {
-            LOGGER.warn("The JDK Home [{0}] does not contain bin/java or bin/java.exe", home);
+            recorder.warn("The JDK Home [%s] does not contain bin/java or bin/java.exe", home);
             return Exceptional.empty();
         }
 
         // read the release file to determine the JDK version — no subprocess needed
         final Path releaseFile = home.resolve("release");
         if (!releaseFile.toFile().exists()) {
-            LOGGER.warn("The JDK Home [{0}] does not contain a release file", home);
+            recorder.warn("The JDK Home [%s] does not contain a release file", home);
             return Exceptional.empty();
         }
 
@@ -174,12 +190,12 @@ public interface JDKDetector {
                 return Exceptional.of(JDK.of(javaVersion, javaHome, operatingSystem, architecture));
             }
             else {
-                LOGGER.warn("Could not detect Java version from release file at [{0}]", releaseFile);
+                recorder.warn("Could not detect Java version from release file at [%s]", releaseFile);
                 return Exceptional.empty();
             }
         }
         catch (final IOException e) {
-            LOGGER.warn("Failed to read release file at [{0}]", releaseFile, e);
+            recorder.warn(e, "Failed to read release file at [%s]", releaseFile);
             return Exceptional.ofException(e);
         }
     }

@@ -23,7 +23,6 @@ package build.spawn.application;
 import build.base.commandline.CommandLine;
 import build.base.configuration.Configuration;
 import build.base.configuration.ConfigurationBuilder;
-import build.base.logging.Logger;
 import build.base.naming.UniqueNameGenerator;
 import build.base.option.TemporaryDirectory;
 import build.base.option.WorkingDirectory;
@@ -32,6 +31,7 @@ import build.base.table.Tabular;
 import build.base.table.option.CellSeparator;
 import build.base.table.option.RowComparator;
 import build.base.table.option.TableName;
+import build.base.telemetry.TelemetryRecorder;
 import build.codemodel.dependency.injection.Binding;
 import build.codemodel.dependency.injection.Context;
 import build.codemodel.dependency.injection.Dependency;
@@ -70,9 +70,10 @@ public abstract class AbstractTemplatedLauncher<A extends Application, P extends
     implements TemplatedLauncher<A, P, N> {
 
     /**
-     * The {@link Logger}.
+     * The {@link TelemetryRecorder}.
      */
-    private static final Logger LOGGER = Logger.get(AbstractTemplatedLauncher.class);
+    @Inject
+    protected TelemetryRecorder recorder;
 
     /**
      * A {@link UniqueNameGenerator} to generate unique {@link Application} names.

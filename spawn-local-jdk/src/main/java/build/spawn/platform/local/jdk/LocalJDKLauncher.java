@@ -22,7 +22,6 @@ package build.spawn.platform.local.jdk;
 
 import build.base.configuration.ConfigurationBuilder;
 import build.base.foundation.Strings;
-import build.base.logging.Logger;
 import build.base.network.Network;
 import build.base.option.JDKVersion;
 import build.base.option.WorkingDirectory;
@@ -62,11 +61,6 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class LocalJDKLauncher
     extends AbstractTemplatedJDKLauncher<JDKApplication, LocalMachine, LocalProcess> {
-
-    /**
-     * The {@link Logger}.
-     */
-    private static final Logger LOGGER = Logger.get(LocalJDKLauncher.class);
 
     /**
      * The cached {@link Path} to the {@link SpawnAgent} archive, created at most once per JVM.
@@ -191,8 +185,8 @@ public class LocalJDKLauncher
         // --- launch the Java Application ---
         this.diagnostics.addRow("Application Launch Command", String.join(" ", processBuilder.command()));
 
-        LOGGER.debug("\n" + "build.spawn: Launching JDK-based Application...\n"
-            + "--------------------------------------------------------------\n" + "{0}"
+        this.recorder.diagnostic("\n" + "build.spawn: Launching JDK-based Application...\n"
+            + "--------------------------------------------------------------\n" + "%s"
             + "--------------------------------------------------------------", this.diagnostics);
 
         try {
@@ -202,8 +196,8 @@ public class LocalJDKLauncher
             return new LocalProcess(nativeProcess, machine);
         }
         catch (final IOException e) {
-            LOGGER.error("Failed to launch a native process for the application {0}",
-                options.get(Name.class).get(), e);
+            this.recorder.error(e, "Failed to launch a native process for the application %s",
+                options.get(Name.class).get());
 
             throw new RuntimeException("Failed to launch native process for the application", e);
         }

@@ -30,6 +30,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @EnabledOnOs({OS.LINUX, OS.MAC})
 class JDKHomeBasedPatternDetectorPruningTests {
 
+    private final JDKHomeBasedPatternDetector detector = new JDKHomeBasedPatternDetector();
+
     /**
      * A fixed-depth pattern (no {@code **}): every segment is prunable, so the non-matching
      * sibling must never be descended into.
@@ -43,7 +45,7 @@ class JDKHomeBasedPatternDetectorPruningTests {
 
         final var pattern = tempDir.toAbsolutePath() + "/match-*/Contents/Home";
 
-        final var matches = JDKHomeBasedPatternDetector.expandPattern(pattern).toList();
+        final var matches = detector.expandPattern(pattern).toList();
 
         assertThat(matches).containsExactly(matchHome);
     }
@@ -62,7 +64,7 @@ class JDKHomeBasedPatternDetectorPruningTests {
 
         final var pattern = tempDir.toAbsolutePath() + "/match-*/**/Home";
 
-        final var matches = JDKHomeBasedPatternDetector.expandPattern(pattern).toList();
+        final var matches = detector.expandPattern(pattern).toList();
 
         assertThat(matches).containsExactly(matchHome);
     }

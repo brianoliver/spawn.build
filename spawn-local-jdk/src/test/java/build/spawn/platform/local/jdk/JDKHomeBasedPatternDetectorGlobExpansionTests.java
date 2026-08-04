@@ -23,6 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class JDKHomeBasedPatternDetectorGlobExpansionTests {
 
+    private final JDKHomeBasedPatternDetector detector = new JDKHomeBasedPatternDetector();
+
     /**
      * A pattern with no glob metacharacters is not resolved against the filesystem at all — it
      * is returned verbatim, even when nothing exists at that path.
@@ -31,7 +33,7 @@ class JDKHomeBasedPatternDetectorGlobExpansionTests {
     void plainPathResolvesToItselfEvenWhenItDoesNotExist(@TempDir final Path tempDir) {
         final var missing = tempDir.resolve("does-not-exist");
 
-        final var matches = JDKHomeBasedPatternDetector.expandPattern(missing.toString()).toList();
+        final var matches = detector.expandPattern(missing.toString()).toList();
 
         assertThat(matches).containsExactly(missing);
     }
@@ -42,7 +44,7 @@ class JDKHomeBasedPatternDetectorGlobExpansionTests {
      */
     @Test
     void invalidPathPatternYieldsEmptyStreamRatherThanThrowing() {
-        final var matches = JDKHomeBasedPatternDetector.expandPattern("/tmp/bad\0name").toList();
+        final var matches = detector.expandPattern("/tmp/bad\0name").toList();
 
         assertThat(matches).isEmpty();
     }
@@ -53,7 +55,7 @@ class JDKHomeBasedPatternDetectorGlobExpansionTests {
      */
     @Test
     void globPatternWithoutLeadingSeparatorYieldsEmptyStream() {
-        final var matches = JDKHomeBasedPatternDetector.expandPattern("*.jdk").toList();
+        final var matches = detector.expandPattern("*.jdk").toList();
 
         assertThat(matches).isEmpty();
     }
@@ -66,7 +68,7 @@ class JDKHomeBasedPatternDetectorGlobExpansionTests {
     void globPatternWithNonExistentBaseYieldsEmptyStream(@TempDir final Path tempDir) {
         final var pattern = tempDir.resolve("nope").toAbsolutePath() + "/jdk-*";
 
-        final var matches = JDKHomeBasedPatternDetector.expandPattern(pattern).toList();
+        final var matches = detector.expandPattern(pattern).toList();
 
         assertThat(matches).isEmpty();
     }
@@ -84,7 +86,7 @@ class JDKHomeBasedPatternDetectorGlobExpansionTests {
 
         final var pattern = tempDir.toAbsolutePath() + "/jdk-*";
 
-        final var matches = JDKHomeBasedPatternDetector.expandPattern(pattern).toList();
+        final var matches = detector.expandPattern(pattern).toList();
 
         assertThat(matches).containsExactlyInAnyOrder(jdk8, jdk17);
     }
@@ -100,7 +102,7 @@ class JDKHomeBasedPatternDetectorGlobExpansionTests {
 
         final var pattern = tempDir.toAbsolutePath() + "/jdk-?";
 
-        final var matches = JDKHomeBasedPatternDetector.expandPattern(pattern).toList();
+        final var matches = detector.expandPattern(pattern).toList();
 
         assertThat(matches).containsExactly(single);
     }
@@ -116,7 +118,7 @@ class JDKHomeBasedPatternDetectorGlobExpansionTests {
 
         final var pattern = tempDir.toAbsolutePath() + "/jdk-[89]";
 
-        final var matches = JDKHomeBasedPatternDetector.expandPattern(pattern).toList();
+        final var matches = detector.expandPattern(pattern).toList();
 
         assertThat(matches).containsExactlyInAnyOrder(eight, nine);
     }
@@ -132,7 +134,7 @@ class JDKHomeBasedPatternDetectorGlobExpansionTests {
 
         final var pattern = tempDir.toAbsolutePath() + "/**/Home";
 
-        final var matches = JDKHomeBasedPatternDetector.expandPattern(pattern).toList();
+        final var matches = detector.expandPattern(pattern).toList();
 
         assertThat(matches).containsExactlyInAnyOrder(shallow, deep);
     }
@@ -152,7 +154,7 @@ class JDKHomeBasedPatternDetectorGlobExpansionTests {
 
         final var pattern = tempDir.toAbsolutePath() + "/match-*/Contents/Home";
 
-        final var matches = JDKHomeBasedPatternDetector.expandPattern(pattern).toList();
+        final var matches = detector.expandPattern(pattern).toList();
 
         assertThat(matches).containsExactly(correctDepth);
     }
@@ -172,7 +174,7 @@ class JDKHomeBasedPatternDetectorGlobExpansionTests {
 
         final var pattern = tempDir.toAbsolutePath() + "/{a/x,b/y}/Home";
 
-        final var matches = JDKHomeBasedPatternDetector.expandPattern(pattern).toList();
+        final var matches = detector.expandPattern(pattern).toList();
 
         assertThat(matches).containsExactlyInAnyOrder(homeA, homeB);
     }
@@ -190,7 +192,7 @@ class JDKHomeBasedPatternDetectorGlobExpansionTests {
 
         final var pattern = tempDir.toAbsolutePath() + "/{zulu,temurin}-8/Home";
 
-        final var matches = JDKHomeBasedPatternDetector.expandPattern(pattern).toList();
+        final var matches = detector.expandPattern(pattern).toList();
 
         assertThat(matches).containsExactlyInAnyOrder(zulu, temurin);
     }
@@ -209,7 +211,7 @@ class JDKHomeBasedPatternDetectorGlobExpansionTests {
 
         final var pattern = tempDir.toAbsolutePath() + "/linked/Contents/Home";
 
-        final var matches = JDKHomeBasedPatternDetector.expandPattern(pattern).toList();
+        final var matches = detector.expandPattern(pattern).toList();
 
         assertThat(matches).containsExactly(linked.resolve("Contents/Home"));
         assertThat(Files.isSameFile(matches.get(0), realHome)).isTrue();
@@ -239,7 +241,7 @@ class JDKHomeBasedPatternDetectorGlobExpansionTests {
 
             final var pattern = tempDir.toAbsolutePath() + "/jdk-*";
 
-            final var matches = JDKHomeBasedPatternDetector.expandPattern(pattern).toList();
+            final var matches = detector.expandPattern(pattern).toList();
 
             assertThat(matches).containsExactly(match);
         } finally {
