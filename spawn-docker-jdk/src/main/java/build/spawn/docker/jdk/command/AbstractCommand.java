@@ -20,6 +20,7 @@ package build.spawn.docker.jdk.command;
  * #L%
  */
 
+import build.base.telemetry.TelemetryRecorder;
 import build.codemodel.dependency.injection.Context;
 import build.spawn.docker.jdk.HttpTransport;
 import jakarta.inject.Inject;
@@ -50,12 +51,27 @@ public abstract class AbstractCommand<T>
     private Context context;
 
     /**
+     * The {@link TelemetryRecorder} used to record diagnostics for the {@link Command}.
+     */
+    @Inject
+    private TelemetryRecorder recorder;
+
+    /**
      * Obtains the {@link HttpTransport} to use for executing {@link Command}s.
      *
      * @return the {@link HttpTransport}
      */
     protected HttpTransport transport() {
         return this.transport;
+    }
+
+    /**
+     * Obtains the {@link TelemetryRecorder} to use for recording diagnostics for the {@link Command}.
+     *
+     * @return the {@link TelemetryRecorder}
+     */
+    protected TelemetryRecorder recorder() {
+        return this.recorder;
     }
 
     /**

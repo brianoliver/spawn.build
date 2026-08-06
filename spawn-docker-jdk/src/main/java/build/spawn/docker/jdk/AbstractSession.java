@@ -29,6 +29,9 @@ import build.base.json.JsonObject;
 import build.base.option.Email;
 import build.base.option.Password;
 import build.base.option.Username;
+import build.base.telemetry.TelemetryRecorder;
+import build.base.telemetry.TelemetryRecorderFactory;
+import build.base.telemetry.foundation.SystemTelemetryRecorder;
 import build.codemodel.dependency.injection.ConfigurationResolver;
 import build.codemodel.dependency.injection.Context;
 import build.codemodel.dependency.injection.InjectionFramework;
@@ -53,6 +56,7 @@ import build.spawn.docker.option.DockerAPIVersion;
 import build.spawn.docker.option.DockerRegistry;
 import build.spawn.docker.option.IdentityToken;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Base64;
@@ -110,21 +114,45 @@ public class AbstractSession
     private final GetSystemEvents systemEvents;
 
     /**
-     * Constructs an {@link AbstractSession} using the specified {@link HttpTransport} and {@link Configuration}.
+     * Constructs an {@link AbstractSession} using the specified {@link HttpTransport} and {@link Configuration},
+     * recording telemetry via a {@link SystemTelemetryRecorder}.
      *
      * @param injectionFramework the {@link InjectionFramework} to use for {@link build.codemodel.dependency.injection.Dependency} injection
      * @param transport          the {@link HttpTransport} for communicating with the Docker Engine
      * @param configuration      the {@link Configuration}
      */
-    @SuppressWarnings("unchecked")
     protected AbstractSession(final InjectionFramework injectionFramework,
                               final HttpTransport transport,
                               final Configuration configuration) {
 
+        this(injectionFramework, transport, configuration, SystemTelemetryRecorder::of);
+    }
+
+    /**
+     * Constructs an {@link AbstractSession} using the specified {@link HttpTransport}, {@link Configuration}
+     * and {@link TelemetryRecorderFactory}.
+     *
+     * @param injectionFramework       the {@link InjectionFramework} to use for
+     *                                 {@link build.codemodel.dependency.injection.Dependency} injection
+     * @param transport                the {@link HttpTransport} for communicating with the Docker Engine
+     * @param configuration            the {@link Configuration}
+     * @param telemetryRecorderFactory the {@link TelemetryRecorderFactory} used to create the
+     *                                 {@link TelemetryRecorder} for the {@link Session}
+     */
+    @SuppressWarnings("unchecked")
+    protected AbstractSession(final InjectionFramework injectionFramework,
+                              final HttpTransport transport,
+                              final Configuration configuration,
+                              final TelemetryRecorderFactory telemetryRecorderFactory) {
+
         Objects.requireNonNull(injectionFramework, "The InjectionFramework must not be null");
         Objects.requireNonNull(transport, "The HttpTransport must not be null");
+        Objects.requireNonNull(telemetryRecorderFactory, "The TelemetryRecorderFactory must not be null");
 
         this.transport = transport;
+
+        final TelemetryRecorder recorder = telemetryRecorderFactory
+            .apply(URI.create("spawn://" + getClass().getSimpleName()));
 
         this.configuration = configuration == null
             ? Configuration.empty()
@@ -156,6 +184,7 @@ public class AbstractSession
         this.context.bind(Publicist.class).to(this.publicist);
         this.context.bind(Publisher.class).to(this.publicist);
         this.context.bind(CompletingSubscriber.class).to(this.eventSubscriber);
+        this.context.bind(TelemetryRecorder.class).to(recorder);
 
         // attempt to authenticate (when there's a Username, Password, and DockerRegistry) and capture an IdentityToken
         final Optional<String> xRegistryAuth;

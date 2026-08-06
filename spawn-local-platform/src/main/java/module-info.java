@@ -28,6 +28,8 @@ open module build.spawn.platform.local {
 
     requires transitive build.spawn.application;
 
+    requires build.base.telemetry.foundation;
+
     exports build.spawn.platform.local;
 
     provides build.spawn.application.LauncherRegistration

@@ -29,6 +29,8 @@ module build.spawn.docker {
     requires build.base.archiving;
     requires build.base.io;
     requires build.base.flow;
+    requires transitive build.base.telemetry;
+    requires build.base.telemetry.foundation;
 
     requires transitive build.codemodel.dependency.injection;
 

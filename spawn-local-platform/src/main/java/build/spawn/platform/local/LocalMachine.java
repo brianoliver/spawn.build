@@ -27,6 +27,8 @@ import build.base.network.Network;
 import build.base.network.PortSupplier;
 import build.base.option.TemporaryDirectory;
 import build.base.option.WorkingDirectory;
+import build.base.telemetry.TelemetryRecorderFactory;
+import build.base.telemetry.foundation.SystemTelemetryRecorder;
 import build.spawn.application.AbstractTemplatedPlatform;
 import build.spawn.application.Machine;
 
@@ -67,16 +69,31 @@ public class LocalMachine
     }
 
     /**
-     * Constructs a {@link LocalMachine} using the specified {@link Option}s.
+     * Constructs a {@link LocalMachine} using the specified {@link Option}s, recording telemetry via a
+     * {@link SystemTelemetryRecorder}.
      *
      * @param options the {@link Option}s
      */
     public LocalMachine(final Option... options) {
+        this(SystemTelemetryRecorder::of, options);
+    }
+
+    /**
+     * Constructs a {@link LocalMachine} using the specified {@link TelemetryRecorderFactory} and {@link Option}s,
+     * recording telemetry via the {@link build.base.telemetry.TelemetryRecorder} produced by the specified
+     * {@link TelemetryRecorderFactory}.
+     *
+     * @param telemetryRecorderFactory the {@link TelemetryRecorderFactory} used to create the
+     *                                 {@link build.base.telemetry.TelemetryRecorder} for this {@link LocalMachine}
+     * @param options                  the {@link Option}s
+     */
+    public LocalMachine(final TelemetryRecorderFactory telemetryRecorderFactory, final Option... options) {
 
         super("Local", ConfigurationBuilder.create(options)
             .computeIfNotPresent(WorkingDirectory.class, WorkingDirectory::current)
             .computeIfNotPresent(TemporaryDirectory.class, TemporaryDirectory::current)
-            .build());
+            .build(),
+            telemetryRecorderFactory);
 
         // establish a PortSupplier for the LocalMachine
         this.portSupplier = EphemeralPortSupplier.create();

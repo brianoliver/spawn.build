@@ -21,6 +21,7 @@ package build.spawn.docker.jdk;
  */
 
 import build.base.configuration.Configuration;
+import build.base.telemetry.TelemetryRecorderFactory;
 import build.codemodel.dependency.injection.InjectionFramework;
 import build.spawn.docker.Session;
 import jakarta.inject.Inject;
@@ -50,6 +51,13 @@ public class LocalHostBasedSessionFactory
     @Inject
     private InjectionFramework injectionFramework;
 
+    /**
+     * The {@link TelemetryRecorderFactory} used to create the {@link build.base.telemetry.TelemetryRecorder}
+     * for {@link Session}s produced by this {@link Session.Factory}.
+     */
+    @Inject
+    private TelemetryRecorderFactory telemetryRecorderFactory;
+
     @Override
     public boolean isOperational() {
         try (Socket socket = new Socket()) {
@@ -66,7 +74,8 @@ public class LocalHostBasedSessionFactory
     public Optional<Session> create(final Configuration configuration) {
 
         return isOperational()
-            ? Optional.of(new TCPSocketBasedSession(this.injectionFramework, ADDRESS, configuration))
+            ? Optional.of(new TCPSocketBasedSession(
+                this.injectionFramework, ADDRESS, configuration, this.telemetryRecorderFactory))
             : Optional.empty();
     }
 }

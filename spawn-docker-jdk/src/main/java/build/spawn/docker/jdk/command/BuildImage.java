@@ -99,7 +99,7 @@ public class BuildImage
             json -> json.getString("stream").contains("Successful"));
 
         // process the entire InputStream from the Response to essentially wait for the image to be created
-        final var processor = new JsonNodeInputStreamProcessor();
+        final var processor = new JsonNodeInputStreamProcessor(recorder());
         processor.process(response.bodyStream(), completingSubscriber);
 
         // we've completed building when the ImageId is available and "Successful" has been observed

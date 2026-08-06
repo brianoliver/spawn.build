@@ -22,6 +22,8 @@ package build.spawn.docker;
 
 import build.base.configuration.Configuration;
 import build.base.configuration.Option;
+import build.base.telemetry.TelemetryRecorderFactory;
+import build.base.telemetry.foundation.SystemTelemetryRecorder;
 import build.codemodel.dependency.injection.InjectionFramework;
 
 import java.util.Objects;
@@ -44,14 +46,30 @@ public class Sessions {
     }
 
     /**
-     * Obtains the discovered {@link Session.Factory}s.
+     * Obtains the discovered {@link Session.Factory}s, recording telemetry via a {@link SystemTelemetryRecorder}.
      *
      * @param injectionFramework the {@link InjectionFramework} to use for Dependency Injection
      * @return a {@link Stream} of the discovered {@link Session.Factory}s
      */
     public static Stream<? extends Session.Factory> factories(final InjectionFramework injectionFramework) {
+        return factories(injectionFramework, SystemTelemetryRecorder::of);
+    }
+
+    /**
+     * Obtains the discovered {@link Session.Factory}s, recording telemetry via the
+     * {@link build.base.telemetry.TelemetryRecorder} produced by the specified {@link TelemetryRecorderFactory}.
+     *
+     * @param injectionFramework       the {@link InjectionFramework} to use for Dependency Injection
+     * @param telemetryRecorderFactory the {@link TelemetryRecorderFactory} used to create the
+     *                                 {@link build.base.telemetry.TelemetryRecorder} for {@link Session}s
+     *                                 produced by the discovered {@link Session.Factory}s
+     * @return a {@link Stream} of the discovered {@link Session.Factory}s
+     */
+    public static Stream<? extends Session.Factory> factories(final InjectionFramework injectionFramework,
+                                                               final TelemetryRecorderFactory telemetryRecorderFactory) {
 
         Objects.requireNonNull(injectionFramework, "The InjectionFramework must not be null");
+        Objects.requireNonNull(telemetryRecorderFactory, "The TelemetryRecorderFactory must not be null");
 
         final var serviceLoaderClassLoader = Sessions.class.getClassLoader();
         final var serviceLoader = ServiceLoader.load(Session.Factory.class, serviceLoaderClassLoader);
@@ -60,6 +78,7 @@ public class Sessions {
             .newContext();
 
         context.bind(InjectionFramework.class).to(injectionFramework);
+        context.bind(TelemetryRecorderFactory.class).to(telemetryRecorderFactory);
 
         return serviceLoader.stream()
             .map(provider -> {
@@ -76,7 +95,7 @@ public class Sessions {
 
     /**
      * Attempt to create a {@link Session} using the first discovered {@link Session.Factory} that can produce a
-     * {@link Session} using the provided {@link Option}s.
+     * {@link Session} using the provided {@link Option}s, recording telemetry via a {@link SystemTelemetryRecorder}.
      *
      * @param injectionFramework the {@link InjectionFramework} to use for Dependency Injection
      * @param configuration      the {@link Session} {@link Configuration}s
@@ -86,9 +105,29 @@ public class Sessions {
     public static Optional<Session> createSession(final InjectionFramework injectionFramework,
                                                   final Configuration configuration) {
 
+        return createSession(injectionFramework, configuration, SystemTelemetryRecorder::of);
+    }
+
+    /**
+     * Attempt to create a {@link Session} using the first discovered {@link Session.Factory} that can produce a
+     * {@link Session} using the provided {@link Option}s, recording telemetry via the
+     * {@link build.base.telemetry.TelemetryRecorder} produced by the specified {@link TelemetryRecorderFactory}.
+     *
+     * @param injectionFramework       the {@link InjectionFramework} to use for Dependency Injection
+     * @param configuration            the {@link Session} {@link Configuration}s
+     * @param telemetryRecorderFactory the {@link TelemetryRecorderFactory} used to create the
+     *                                 {@link build.base.telemetry.TelemetryRecorder} for the resulting
+     *                                 {@link Session}
+     * @return the {@link Optional} {@link Session} or {@link Optional#empty()} should it not be possible to
+     * create a {@link Session}
+     */
+    public static Optional<Session> createSession(final InjectionFramework injectionFramework,
+                                                  final Configuration configuration,
+                                                  final TelemetryRecorderFactory telemetryRecorderFactory) {
+
         Objects.requireNonNull(injectionFramework, "The InjectionFramework must not be null");
 
-        return factories(injectionFramework)
+        return factories(injectionFramework, telemetryRecorderFactory)
             .filter(Session.Factory::isOperational)
             .map(factory -> factory.create(configuration))
             .filter(Optional::isPresent)
