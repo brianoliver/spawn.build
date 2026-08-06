@@ -35,6 +35,7 @@ import build.base.telemetry.foundation.SystemTelemetryRecorder;
 import build.codemodel.dependency.injection.ConfigurationResolver;
 import build.codemodel.dependency.injection.Context;
 import build.codemodel.dependency.injection.InjectionFramework;
+import build.codemodel.dependency.injection.TypeLiteral;
 import build.spawn.docker.Event;
 import build.spawn.docker.Image;
 import build.spawn.docker.Images;
@@ -181,9 +182,9 @@ public class AbstractSession
         this.context.bind(AbstractSession.class).to(this);
         this.context.bind((Class) getClass()).to(this);
         this.context.bind(Configuration.class).to(this.configuration);
-        this.context.bind(Publicist.class).to(this.publicist);
-        this.context.bind(Publisher.class).to(this.publicist);
-        this.context.bind(CompletingSubscriber.class).to(this.eventSubscriber);
+        this.context.bind(new TypeLiteral<Publicist<Event>>() { }).to(this.publicist);
+        this.context.bind(new TypeLiteral<Publisher<Event>>() { }).to(this.publicist);
+        this.context.bind(new TypeLiteral<CompletingSubscriber<Event>>() { }).to(this.eventSubscriber);
         this.context.bind(TelemetryRecorder.class).to(recorder);
 
         // attempt to authenticate (when there's a Username, Password, and DockerRegistry) and capture an IdentityToken

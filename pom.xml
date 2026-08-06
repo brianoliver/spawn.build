@@ -68,9 +68,9 @@
 
         <!-- Module Dependency Versions -->
         <assertj.version>3.27.7</assertj.version>
-        <base.version>0.30.0</base.version>
+        <base.version>0.30.1</base.version>
         <byte-buddy.version>1.18.4</byte-buddy.version>
-        <codemodel.version>0.26.0</codemodel.version>
+        <codemodel.version>0.27.0</codemodel.version>
         <junit.version>6.0.3</junit.version>
         <jakarta-inject.version>2.0.1</jakarta-inject.version>
         <mockito.version>5.23.0</mockito.version>
