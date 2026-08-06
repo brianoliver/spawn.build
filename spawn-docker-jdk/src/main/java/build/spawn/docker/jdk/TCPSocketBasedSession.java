@@ -21,6 +21,8 @@ package build.spawn.docker.jdk;
  */
 
 import build.base.configuration.Configuration;
+import build.base.telemetry.TelemetryRecorderFactory;
+import build.base.telemetry.foundation.SystemTelemetryRecorder;
 import build.codemodel.dependency.injection.InjectionFramework;
 
 import java.net.InetSocketAddress;
@@ -37,7 +39,8 @@ public class TCPSocketBasedSession
     extends AbstractSession {
 
     /**
-     * Constructs a {@link TCPSocketBasedSession} for the specified {@link InetSocketAddress}.
+     * Constructs a {@link TCPSocketBasedSession} for the specified {@link InetSocketAddress}, recording
+     * telemetry via a {@link SystemTelemetryRecorder}.
      *
      * @param injectionFramework the {@link InjectionFramework}
      * @param socketAddress      the {@link InetSocketAddress}
@@ -47,12 +50,33 @@ public class TCPSocketBasedSession
                                  final InetSocketAddress socketAddress,
                                  final Configuration configuration) {
 
+        this(injectionFramework, socketAddress, configuration, SystemTelemetryRecorder::of);
+    }
+
+    /**
+     * Constructs a {@link TCPSocketBasedSession} for the specified {@link InetSocketAddress}, recording
+     * telemetry via the {@link build.base.telemetry.TelemetryRecorder} produced by the specified
+     * {@link TelemetryRecorderFactory}.
+     *
+     * @param injectionFramework       the {@link InjectionFramework}
+     * @param socketAddress            the {@link InetSocketAddress}
+     * @param configuration            the {@link Configuration}
+     * @param telemetryRecorderFactory the {@link TelemetryRecorderFactory} used to create the
+     *                                 {@link build.base.telemetry.TelemetryRecorder} for the
+     *                                 {@link build.spawn.docker.Session}
+     */
+    public TCPSocketBasedSession(final InjectionFramework injectionFramework,
+                                 final InetSocketAddress socketAddress,
+                                 final Configuration configuration,
+                                 final TelemetryRecorderFactory telemetryRecorderFactory) {
+
         super(injectionFramework,
             new JavaHttpClientTransport(
                 HttpClient.newBuilder()
                     .connectTimeout(Duration.ofSeconds(10))
                     .build(),
                 "http://" + socketAddress.getHostString() + ":" + socketAddress.getPort()),
-            configuration);
+            configuration,
+            telemetryRecorderFactory);
     }
 }

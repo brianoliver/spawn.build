@@ -21,6 +21,8 @@ package build.spawn.docker.jdk;
  */
 
 import build.base.configuration.Configuration;
+import build.base.telemetry.TelemetryRecorderFactory;
+import build.base.telemetry.foundation.SystemTelemetryRecorder;
 import build.codemodel.dependency.injection.InjectionFramework;
 import build.spawn.docker.Session;
 import jakarta.inject.Inject;
@@ -66,7 +68,8 @@ public class UnixDomainSocketBasedSession
     }
 
     /**
-     * Constructs a {@link UnixDomainSocketBasedSession} using the default {@code docker.sock} file.
+     * Constructs a {@link UnixDomainSocketBasedSession} using the default {@code docker.sock} file, recording
+     * telemetry via a {@link SystemTelemetryRecorder}.
      *
      * @param injectionFramework the {@link InjectionFramework} for Dependency Injection
      * @param configuration      the {@link Configuration}
@@ -78,7 +81,25 @@ public class UnixDomainSocketBasedSession
     }
 
     /**
-     * Constructs a {@link UnixDomainSocketBasedSession} for the specified Unix socket {@link File}.
+     * Constructs a {@link UnixDomainSocketBasedSession} using the default {@code docker.sock} file, recording
+     * telemetry via the {@link build.base.telemetry.TelemetryRecorder} produced by the specified
+     * {@link TelemetryRecorderFactory}.
+     *
+     * @param injectionFramework       the {@link InjectionFramework} for Dependency Injection
+     * @param configuration            the {@link Configuration}
+     * @param telemetryRecorderFactory the {@link TelemetryRecorderFactory} used to create the
+     *                                 {@link build.base.telemetry.TelemetryRecorder} for the {@link Session}
+     */
+    public UnixDomainSocketBasedSession(final InjectionFramework injectionFramework,
+                                        final Configuration configuration,
+                                        final TelemetryRecorderFactory telemetryRecorderFactory) {
+
+        this(injectionFramework, DOCKER_SOCK_FILE, configuration, telemetryRecorderFactory);
+    }
+
+    /**
+     * Constructs a {@link UnixDomainSocketBasedSession} for the specified Unix socket {@link File}, recording
+     * telemetry via a {@link SystemTelemetryRecorder}.
      *
      * @param injectionFramework the {@link InjectionFramework} for Dependency Injection
      * @param socketFile         the Unix socket {@link File}
@@ -88,7 +109,26 @@ public class UnixDomainSocketBasedSession
                                         final File socketFile,
                                         final Configuration configuration) {
 
-        super(injectionFramework, new UnixSocketHttpTransport(socketFile), configuration);
+        this(injectionFramework, socketFile, configuration, SystemTelemetryRecorder::of);
+    }
+
+    /**
+     * Constructs a {@link UnixDomainSocketBasedSession} for the specified Unix socket {@link File}, recording
+     * telemetry via the {@link build.base.telemetry.TelemetryRecorder} produced by the specified
+     * {@link TelemetryRecorderFactory}.
+     *
+     * @param injectionFramework       the {@link InjectionFramework} for Dependency Injection
+     * @param socketFile               the Unix socket {@link File}
+     * @param configuration            the {@link Configuration}
+     * @param telemetryRecorderFactory the {@link TelemetryRecorderFactory} used to create the
+     *                                 {@link build.base.telemetry.TelemetryRecorder} for the {@link Session}
+     */
+    public UnixDomainSocketBasedSession(final InjectionFramework injectionFramework,
+                                        final File socketFile,
+                                        final Configuration configuration,
+                                        final TelemetryRecorderFactory telemetryRecorderFactory) {
+
+        super(injectionFramework, new UnixSocketHttpTransport(socketFile), configuration, telemetryRecorderFactory);
     }
 
     /**
@@ -103,6 +143,13 @@ public class UnixDomainSocketBasedSession
         @Inject
         private InjectionFramework injectionFramework;
 
+        /**
+         * The {@link TelemetryRecorderFactory} used to create the {@link build.base.telemetry.TelemetryRecorder}
+         * for {@link Session}s produced by this {@link Session.Factory}.
+         */
+        @Inject
+        private TelemetryRecorderFactory telemetryRecorderFactory;
+
         @Override
         public boolean isOperational() {
             try (var _ = SocketChannel.open(UnixDomainSocketAddress.of(DOCKER_SOCK_FILE.toPath()))) {
@@ -115,7 +162,8 @@ public class UnixDomainSocketBasedSession
         @Override
         public Optional<Session> create(final Configuration configuration) {
             return isOperational()
-                ? Optional.of(new UnixDomainSocketBasedSession(this.injectionFramework, configuration))
+                ? Optional.of(new UnixDomainSocketBasedSession(
+                    this.injectionFramework, configuration, this.telemetryRecorderFactory))
                 : Optional.empty();
         }
     }

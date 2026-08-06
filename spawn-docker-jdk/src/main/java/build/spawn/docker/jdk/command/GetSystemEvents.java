@@ -88,7 +88,7 @@ public class GetSystemEvents
             };
 
             // process the entire InputStream from the Response to essentially wait for the image to be created
-            final var processor = new JsonNodeInputStreamProcessor();
+            final var processor = new JsonNodeInputStreamProcessor(recorder());
             try {
                 processor.process(response.bodyStream(), jsonSubscriber);
             } catch (final IOException e) {
