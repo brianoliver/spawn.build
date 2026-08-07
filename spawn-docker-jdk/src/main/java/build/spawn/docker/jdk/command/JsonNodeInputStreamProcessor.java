@@ -32,6 +32,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URI;
+import java.nio.channels.ClosedChannelException;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -101,6 +102,11 @@ public class JsonNodeInputStreamProcessor
                     subscriber.onError(throwable);
                 }
             }
+        } catch (final ClosedChannelException e) {
+            // Response#cancel() closes the underlying channel; a read blocked at that moment surfaces here as
+            // a ClosedChannelException (or its AsynchronousCloseException subtype) rather than propagating to
+            // onError — this is the normal mechanism used to stop a long-running stream (eg: system events),
+            // so it's an expected termination, not a failure, and isn't recorded as telemetry
         } catch (final Throwable throwable) {
             this.recorder.warn(throwable, "Failed while processing the JSON input stream");
             if (!failed) {
