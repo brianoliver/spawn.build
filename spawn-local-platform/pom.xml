@@ -90,11 +90,6 @@
             <scope>test</scope>
         </dependency>
 
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 
     <build>
@@ -116,15 +111,6 @@
                         <ignoredNonTestScopedDependency>build.base:base-flow</ignoredNonTestScopedDependency>
                         <ignoredNonTestScopedDependency>build.base:base-table</ignoredNonTestScopedDependency>
                     </ignoredNonTestScopedDependencies>
-                </configuration>
-            </plugin>
-
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>${maven-surefire-plugin.version}</version>
-                <configuration>
-                    <argLine>-XX:+EnableDynamicAgentLoading -javaagent:${org.mockito:mockito-core:jar}</argLine>
                 </configuration>
             </plugin>
         </plugins>

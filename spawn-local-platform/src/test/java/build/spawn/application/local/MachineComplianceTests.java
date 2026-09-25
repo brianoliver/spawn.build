@@ -1,6 +1,7 @@
 package build.spawn.application.local;
 
 import build.base.assertion.Eventually;
+import build.base.configuration.ConfigurationBuilder;
 import build.base.flow.CompletingSubscriber;
 import build.base.foundation.CompletableFutures;
 import build.base.option.WorkingDirectory;
@@ -8,17 +9,17 @@ import build.spawn.application.Application;
 import build.spawn.application.Console;
 import build.spawn.application.Customizer;
 import build.spawn.application.Machine;
+import build.spawn.application.Platform;
 import build.spawn.application.option.Argument;
 import build.spawn.application.option.StandardErrorSubscriber;
 import build.spawn.application.option.StandardOutputSubscriber;
 import build.spawn.option.EnvironmentVariable;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 
 /**
  * Compliance tests for all {@link Machine}s.
@@ -209,10 +210,8 @@ public interface MachineComplianceTests {
     @Test
     default void shouldObserveApplicationCustomizerCallbacks() {
 
-        // establish a Mock Application.Customizer to ensure expected invocations
-        final Customizer<?> customizer = Mockito.mock(Customizer.class);
-        Mockito.when(customizer.onStart(any(), any(), any()))
-            .thenReturn(CompletableFutures.completedFuture());
+        // establish a Customizer that counts invocations to ensure expected callbacks occur
+        final var customizer = new CountingCustomizer();
 
         try (Application application = machine()
             .launch("echo",
@@ -226,28 +225,86 @@ public interface MachineComplianceTests {
                 .isCompleted();
         }
 
-        Mockito.verify(customizer, times(1))
-            .onLaunching(any(), any(), any());
+        assertThat(customizer.onLaunching.get()).isEqualTo(1);
+        assertThat(customizer.onLaunched.get()).isEqualTo(1);
+        assertThat(customizer.onStart.get()).isEqualTo(1);
+        assertThat(customizer.onShuttingDown.get()).isEqualTo(1);
+        assertThat(customizer.onTerminated.get()).isEqualTo(1);
+        assertThat(customizer.onDestroying.get()).isEqualTo(0);
+        assertThat(customizer.onSuspending.get()).isEqualTo(0);
+        assertThat(customizer.onResuming.get()).isEqualTo(0);
+    }
 
-        Mockito.verify(customizer, times(1))
-            .onLaunched(any(), any(), any());
+    /**
+     * A {@link Customizer} that counts invocations of each lifecycle callback.
+     */
+    final class CountingCustomizer
+        implements Customizer<Application> {
 
-        Mockito.verify(customizer, times(1))
-            .onStart(any(), any(), any());
+        private final AtomicInteger onLaunching = new AtomicInteger();
+        private final AtomicInteger onLaunched = new AtomicInteger();
+        private final AtomicInteger onStart = new AtomicInteger();
+        private final AtomicInteger onSuspending = new AtomicInteger();
+        private final AtomicInteger onResuming = new AtomicInteger();
+        private final AtomicInteger onShuttingDown = new AtomicInteger();
+        private final AtomicInteger onDestroying = new AtomicInteger();
+        private final AtomicInteger onTerminated = new AtomicInteger();
 
-        Mockito.verify(customizer, times(1))
-            .onShuttingDown(any(), any(), any());
+        @Override
+        public void onLaunching(final Platform platform,
+                                 final Class<? extends Application> applicationClass,
+                                 final ConfigurationBuilder configurationBuilder) {
+            onLaunching.incrementAndGet();
+        }
 
-        Mockito.verify(customizer, times(1))
-            .onTerminated(any(), any(), any());
+        @Override
+        public void onLaunched(final Platform platform,
+                                final Class<? extends Application> applicationClass,
+                                final Application application) {
+            onLaunched.incrementAndGet();
+        }
 
-        Mockito.verify(customizer, never())
-            .onDestroying(any(), any(), any());
+        @Override
+        public CompletableFuture<? extends Application> onStart(final Platform platform,
+                                                                  final Class<? extends Application> applicationClass,
+                                                                  final Application application) {
+            onStart.incrementAndGet();
+            return CompletableFutures.completedFuture();
+        }
 
-        Mockito.verify(customizer, never())
-            .onSuspending(any(), any(), any());
+        @Override
+        public void onSuspending(final Platform platform,
+                                  final Class<? extends Application> applicationClass,
+                                  final Application application) {
+            onSuspending.incrementAndGet();
+        }
 
-        Mockito.verify(customizer, never())
-            .onResuming(any(), any(), any());
+        @Override
+        public void onResuming(final Platform platform,
+                                final Class<? extends Application> applicationClass,
+                                final Application application) {
+            onResuming.incrementAndGet();
+        }
+
+        @Override
+        public void onShuttingDown(final Platform platform,
+                                    final Class<? extends Application> applicationClass,
+                                    final Application application) {
+            onShuttingDown.incrementAndGet();
+        }
+
+        @Override
+        public void onDestroying(final Platform platform,
+                                  final Class<? extends Application> applicationClass,
+                                  final Application application) {
+            onDestroying.incrementAndGet();
+        }
+
+        @Override
+        public void onTerminated(final Platform platform,
+                                  final Class<? extends Application> applicationClass,
+                                  final Application application) {
+            onTerminated.incrementAndGet();
+        }
     }
 }
