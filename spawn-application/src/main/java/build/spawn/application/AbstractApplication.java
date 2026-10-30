@@ -30,6 +30,7 @@ import build.spawn.application.option.StandardOutputFormatter;
 import build.spawn.application.option.StandardOutputSubscriber;
 import jakarta.inject.Inject;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -78,6 +79,12 @@ public abstract class AbstractApplication
     private final Optional<Console> console;
 
     /**
+     * Completes once the {@link Process} has exited and its stdout and stderr {@link Pipe}s have delivered all of
+     * their output to the subscribers, and the {@link Customizer}s have been notified of the termination.
+     */
+    private final CompletableFuture<Void> terminated;
+
+    /**
      * The {@link Lifecycle}s this {@link Application} must respect.
      */
     @Inject
@@ -106,6 +113,9 @@ public abstract class AbstractApplication
         this.name = this.configuration.getOptionalValue(Name.class)
             .orElseThrow(() -> new IllegalArgumentException("The Configuration fails to define an Application Name"));
 
+        // the futures of the output Pipes, completed once all of their output has been delivered to the subscribers
+        final List<CompletableFuture<?>> pipes = new ArrayList<>();
+
         // establish a Console for the Application (iff there's a Terminal available)
         this.console = this.process.terminal()
             .flatMap(terminal -> {
@@ -128,7 +138,7 @@ public abstract class AbstractApplication
                     .map(StandardOutputSubscriber::get)
                     .forEach(stdoutPipe::subscribe);
 
-                stdoutPipe.open();
+                pipes.add(stdoutPipe.open());
 
                 // establish the stderr Pip for the Terminal
                 final var stderrPipe = new Pipe(terminal.getErrorReader(), console.getErrorWriter())
@@ -141,7 +151,7 @@ public abstract class AbstractApplication
                     .map(StandardErrorSubscriber::get)
                     .forEach(stderrPipe::subscribe);
 
-                stderrPipe.open();
+                pipes.add(stderrPipe.open());
 
                 // establish the stdin Pipe for the Terminal
                 final var stdinPipe = new Pipe(console.getInputReader(), terminal.getInputWriter())
@@ -151,8 +161,11 @@ public abstract class AbstractApplication
                 return Optional.of(console);
             });
 
-        // upon termination, notify the application customizers of the termination
-        this.process.onExit()
+        // the Process exiting doesn't mean its output has been delivered, as the Pipes deliver it asynchronously
+        this.terminated = this.process.onExit()
+            .thenCompose(__ -> CompletableFuture.allOf(pipes.toArray(CompletableFuture[]::new)))
+            // upon termination, notify the application customizers of the termination
+            // (part of this future, so onExit() is guaranteed to complete after the notification)
             .thenRun(() -> this.configuration()
                 .stream(Customizer.class)
                 .forEach(option -> option.onTerminated(platform, applicationClass, this)));
@@ -216,9 +229,15 @@ public abstract class AbstractApplication
             .thenApply(__ -> this);
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>
+     * The returned {@link CompletableFuture} completes once the {@link Process} has exited and its stdout and stderr
+     * have been delivered to the subscribers, and the {@link Customizer}s have been notified of the termination.
+     */
     @Override
     public CompletableFuture<? extends Application> onExit() {
-        return this.process.onExit()
+        return this.terminated
             .thenCompose(__ -> CompletableFuture.allOf(StreamSupport.stream(this.lifecycles.spliterator(), false)
                 .map(Lifecycle::onExit)
                 .filter(Objects::nonNull)
