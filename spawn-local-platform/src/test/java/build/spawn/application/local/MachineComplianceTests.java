@@ -3,6 +3,7 @@ package build.spawn.application.local;
 import build.base.assertion.Eventually;
 import build.base.configuration.ConfigurationBuilder;
 import build.base.flow.CompletingSubscriber;
+import build.base.flow.RecordingSubscriber;
 import build.base.foundation.CompletableFutures;
 import build.base.option.WorkingDirectory;
 import build.spawn.application.Application;
@@ -16,10 +17,16 @@ import build.spawn.application.option.StandardOutputSubscriber;
 import build.spawn.option.EnvironmentVariable;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Compliance tests for all {@link Machine}s.
@@ -65,6 +72,145 @@ public interface MachineComplianceTests {
 
             Eventually.assertThat(application.onExit())
                 .isCompleted();
+        }
+    }
+
+    /**
+     * Ensure the output of an {@link Application} has been delivered to its subscribers by the time
+     * {@link Application#onExit()} completes.
+     */
+    @Test
+    default void shouldDeliverAllOutputBeforeExit() throws Exception {
+
+        final var output = new RecordingSubscriber<String>();
+
+        try (Application application = machine()
+            .launch("echo",
+                Argument.of("Hello World"),
+                Console.ofSystem(),
+                StandardOutputSubscriber.of(output))) {
+
+            application.onExit().get();
+
+            assertThat(output.isCompleted()).isTrue();
+            assertThat(output.items()).containsExactly("Hello World");
+        }
+    }
+
+    /**
+     * Ensure the standard error of an {@link Application} has been delivered to its subscribers by the time
+     * {@link Application#onExit()} completes.
+     */
+    @Test
+    default void shouldDeliverAllErrorOutputBeforeExit() throws Exception {
+
+        final var stdout = new RecordingSubscriber<String>();
+        final var stderr = new RecordingSubscriber<String>();
+
+        try (Application application = machine()
+            .launch("sh",
+                Argument.of("-c"),
+                Argument.of("echo out; echo err >&2"),
+                Console.ofSystem(),
+                StandardOutputSubscriber.of(stdout),
+                StandardErrorSubscriber.of(stderr))) {
+
+            application.onExit().get();
+
+            assertThat(stdout.isCompleted()).isTrue();
+            assertThat(stdout.items()).containsExactly("out");
+            assertThat(stderr.isCompleted()).isTrue();
+            assertThat(stderr.items()).containsExactly("err");
+        }
+    }
+
+    /**
+     * Ensure the output of an {@link Application} has been delivered to its subscribers by the time its
+     * {@link Customizer}s are notified of the termination, and that {@link Application#onExit()} completes after
+     * that notification.
+     */
+    @Test
+    default void shouldDeliverAllOutputBeforeNotifyingCustomizersOfTermination() throws Exception {
+
+        final var output = new RecordingSubscriber<String>();
+        final var customizer = new OutputCheckingCustomizer(output);
+
+        try (Application application = machine()
+            .launch("echo",
+                Argument.of("Hello World"),
+                Console.ofSystem(),
+                StandardOutputSubscriber.of(output),
+                customizer)) {
+
+            application.onExit().get();
+
+            assertThat(customizer.terminated.get()).isEqualTo(1);
+            assertThat(customizer.completedOnTerminated.get()).isTrue();
+            assertThat(customizer.itemsOnTerminated.get()).containsExactly("Hello World");
+        }
+    }
+
+    /**
+     * Ensure {@link Application#onExit()} completes, and {@link Customizer}s are notified of the termination, when
+     * a descendant of the {@link Application} outlives it.
+     */
+    @Test
+    default void shouldCompleteExitWhenDescendantOutlivesApplication() throws Exception {
+
+        final var output = new RecordingSubscriber<String>();
+        final var customizer = new OutputCheckingCustomizer(output);
+
+        try (Application application = machine()
+            .launch("sh",
+                Argument.of("-c"),
+                Argument.of("echo out; sleep 20 & echo $!"),
+                Console.ofSystem(),
+                StandardOutputSubscriber.of(output),
+                customizer)) {
+
+            try {
+                // the descendant lives for 20 seconds, so completing well before then means we didn't wait for it
+                application.onExit().get(5, TimeUnit.SECONDS);
+
+                assertThat(customizer.terminated.get()).isEqualTo(1);
+                assertThat(customizer.itemsOnTerminated.get()).hasSize(2).first().isEqualTo("out");
+            }
+            finally {
+                // the descendant isn't a child of the Application, so closing the Application won't terminate it
+                output.items()
+                    .skip(1)
+                    .findFirst()
+                    .map(Long::parseLong)
+                    .flatMap(ProcessHandle::of)
+                    .ifPresent(ProcessHandle::destroyForcibly);
+            }
+        }
+    }
+
+    /**
+     * Ensure {@link Application#onExit()} completes exceptionally when a {@link Customizer} throws while being
+     * notified of the termination.
+     */
+    @Test
+    default void shouldFailExitWhenCustomizerFailsOnTerminated() throws Exception {
+
+        final var customizer = new Customizer<Application>() {
+            @Override
+            public void onTerminated(final Platform platform,
+                                     final Class<? extends Application> applicationClass,
+                                     final Application application) {
+                throw new IllegalStateException("boom");
+            }
+        };
+
+        try (Application application = machine()
+            .launch("echo",
+                Argument.of("Hello World"),
+                customizer)) {
+
+            assertThatThrownBy(() -> application.onExit().get())
+                .isInstanceOf(ExecutionException.class)
+                .hasRootCauseMessage("boom");
         }
     }
 
@@ -233,6 +379,31 @@ public interface MachineComplianceTests {
         assertThat(customizer.onDestroying.get()).isEqualTo(0);
         assertThat(customizer.onSuspending.get()).isEqualTo(0);
         assertThat(customizer.onResuming.get()).isEqualTo(0);
+    }
+
+    /**
+     * A {@link Customizer} that records the state of a {@link RecordingSubscriber} at the moment of termination.
+     */
+    final class OutputCheckingCustomizer
+        implements Customizer<Application> {
+
+        private final RecordingSubscriber<String> output;
+        private final AtomicInteger terminated = new AtomicInteger();
+        private final AtomicBoolean completedOnTerminated = new AtomicBoolean();
+        private final AtomicReference<List<String>> itemsOnTerminated = new AtomicReference<>(List.of());
+
+        private OutputCheckingCustomizer(final RecordingSubscriber<String> output) {
+            this.output = output;
+        }
+
+        @Override
+        public void onTerminated(final Platform platform,
+                                  final Class<? extends Application> applicationClass,
+                                  final Application application) {
+            completedOnTerminated.set(output.isCompleted());
+            itemsOnTerminated.set(output.items().toList());
+            terminated.incrementAndGet();
+        }
     }
 
     /**
